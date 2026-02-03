@@ -1,16 +1,39 @@
 import * as React from 'react';
-import { Text, TextInput, TouchableOpacity, View, StyleSheet } from 'react-native';
-import { useSignUp } from '@clerk/clerk-expo';
+import { useCallback } from 'react';
+import { Text, TextInput, TouchableOpacity, View, StyleSheet, Platform } from 'react-native';
+import { useSignUp, useSSO } from '@clerk/clerk-expo';
 import { Link, useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
+
+// Handle OAuth redirect for web
+if (Platform.OS === 'web') {
+  WebBrowser.maybeCompleteAuthSession();
+}
 
 export default function SignUpScreen() {
   const { isLoaded, signUp, setActive } = useSignUp();
+  const { startSSOFlow } = useSSO();
   const router = useRouter();
 
   const [emailAddress, setEmailAddress] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [pendingVerification, setPendingVerification] = React.useState(false);
   const [code, setCode] = React.useState('');
+
+  const onGooglePress = useCallback(async () => {
+    try {
+      const { createdSessionId, setActive: ssoSetActive } = await startSSOFlow({
+        strategy: 'oauth_google',
+      });
+
+      if (createdSessionId) {
+        await ssoSetActive!({ session: createdSessionId });
+        router.replace('/');
+      }
+    } catch (err) {
+      console.error('OAuth error:', JSON.stringify(err, null, 2));
+    }
+  }, [startSSOFlow, router]);
 
   const onSignUpPress = async () => {
     if (!isLoaded) return;
@@ -68,6 +91,17 @@ export default function SignUpScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Sign up</Text>
+
+      <TouchableOpacity style={styles.googleButton} onPress={onGooglePress}>
+        <Text style={styles.googleButtonText}>Continue with Google</Text>
+      </TouchableOpacity>
+
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>or</Text>
+        <View style={styles.dividerLine} />
+      </View>
+
       <TextInput
         style={styles.input}
         autoCapitalize="none"
@@ -106,6 +140,34 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  googleButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  googleButtonText: {
+    color: '#333',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#ccc',
+  },
+  dividerText: {
+    marginHorizontal: 10,
+    color: '#666',
   },
   input: {
     borderWidth: 1,

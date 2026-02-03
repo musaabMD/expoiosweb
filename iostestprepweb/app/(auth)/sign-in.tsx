@@ -1,14 +1,51 @@
-import { useSignIn } from '@clerk/clerk-expo';
+import { useSignIn, useSSO } from '@clerk/clerk-expo';
 import { Link, useRouter } from 'expo-router';
-import { Text, TextInput, TouchableOpacity, View, StyleSheet } from 'react-native';
-import React from 'react';
+import { Text, TextInput, TouchableOpacity, View, StyleSheet, Platform } from 'react-native';
+import React, { useCallback } from 'react';
+import * as WebBrowser from 'expo-web-browser';
+
+// Handle OAuth redirect for web
+if (Platform.OS === 'web') {
+  WebBrowser.maybeCompleteAuthSession();
+}
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
+  const { startSSOFlow } = useSSO();
   const router = useRouter();
 
   const [emailAddress, setEmailAddress] = React.useState('');
   const [password, setPassword] = React.useState('');
+
+  const onGooglePress = useCallback(async () => {
+    try {
+      const { createdSessionId, setActive: ssoSetActive } = await startSSOFlow({
+        strategy: 'oauth_google',
+      });
+
+      if (createdSessionId) {
+        await ssoSetActive!({ session: createdSessionId });
+        router.replace('/');
+      }
+    } catch (err) {
+      console.error('OAuth error:', JSON.stringify(err, null, 2));
+    }
+  }, [startSSOFlow, router]);
+
+  const onApplePress = useCallback(async () => {
+    try {
+      const { createdSessionId, setActive: ssoSetActive } = await startSSOFlow({
+        strategy: 'oauth_apple',
+      });
+
+      if (createdSessionId) {
+        await ssoSetActive!({ session: createdSessionId });
+        router.replace('/');
+      }
+    } catch (err) {
+      console.error('OAuth error:', JSON.stringify(err, null, 2));
+    }
+  }, [startSSOFlow, router]);
 
   const onSignInPress = async () => {
     if (!isLoaded) return;
@@ -23,7 +60,6 @@ export default function SignInScreen() {
         await setActive({ session: signInAttempt.createdSessionId });
         router.replace('/');
       } else if (signInAttempt.status === 'needs_second_factor') {
-        // Handle 2FA
         alert('Two-factor authentication required. Check your email for a code.');
       } else {
         console.error(JSON.stringify(signInAttempt, null, 2));
@@ -36,6 +72,21 @@ export default function SignInScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Sign in</Text>
+
+      <TouchableOpacity style={styles.googleButton} onPress={onGooglePress}>
+        <Text style={styles.googleButtonText}>Continue with Google</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.appleButton} onPress={onApplePress}>
+        <Text style={styles.appleButtonText}>Continue with Apple</Text>
+      </TouchableOpacity>
+
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>or</Text>
+        <View style={styles.dividerLine} />
+      </View>
+
       <TextInput
         style={styles.input}
         autoCapitalize="none"
@@ -74,6 +125,46 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  googleButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  googleButtonText: {
+    color: '#333',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  appleButton: {
+    backgroundColor: '#000',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  appleButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#ccc',
+  },
+  dividerText: {
+    marginHorizontal: 10,
+    color: '#666',
   },
   input: {
     borderWidth: 1,

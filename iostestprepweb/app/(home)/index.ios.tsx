@@ -1,6 +1,6 @@
-import { SignedIn, SignedOut, useUser, useClerk } from '@clerk/clerk-expo';
+import { SignedIn, SignedOut, useUser, useClerk, useSSO } from '@clerk/clerk-expo';
 import { Link, useRouter } from 'expo-router';
-import { Platform } from 'react-native';
+import { useCallback } from 'react';
 import {
   Button,
   Form,
@@ -17,7 +17,36 @@ import { background, clipShape, frame, padding } from '@expo/ui/swift-ui/modifie
 export default function HomePage() {
   const { user } = useUser();
   const { signOut } = useClerk();
+  const { startSSOFlow } = useSSO();
   const router = useRouter();
+
+  const onGooglePress = useCallback(async () => {
+    try {
+      const { createdSessionId, setActive } = await startSSOFlow({
+        strategy: 'oauth_google',
+      });
+      if (createdSessionId) {
+        await setActive!({ session: createdSessionId });
+        router.replace('/');
+      }
+    } catch (err) {
+      console.error('OAuth error:', JSON.stringify(err, null, 2));
+    }
+  }, [startSSOFlow, router]);
+
+  const onApplePress = useCallback(async () => {
+    try {
+      const { createdSessionId, setActive } = await startSSOFlow({
+        strategy: 'oauth_apple',
+      });
+      if (createdSessionId) {
+        await setActive!({ session: createdSessionId });
+        router.replace('/');
+      }
+    } catch (err) {
+      console.error('OAuth error:', JSON.stringify(err, null, 2));
+    }
+  }, [startSSOFlow, router]);
 
   const handleSignOut = async () => {
     try {
@@ -84,12 +113,33 @@ export default function HomePage() {
             <Text size={16} color="secondary">Your study companion</Text>
           </VStack>
 
+          <VStack spacing={12}>
+            <Button onPress={onGooglePress}>
+              <HStack spacing={8}>
+                <Spacer />
+                <Text>Continue with Google</Text>
+                <Spacer />
+              </HStack>
+            </Button>
+
+            <Button onPress={onApplePress}>
+              <HStack spacing={8}>
+                <Spacer />
+                <Image systemName="apple.logo" color="white" size={18} />
+                <Text color="white">Continue with Apple</Text>
+                <Spacer />
+              </HStack>
+            </Button>
+          </VStack>
+
           <VStack spacing={16}>
+            <Text size={14} color="secondary">or sign in with email</Text>
+
             <Link href="/(auth)/sign-in" asChild>
               <Button>
                 <HStack spacing={8}>
-                  <Image systemName="person.fill" color="white" size={18} />
-                  <Text color="white">Sign In</Text>
+                  <Image systemName="envelope.fill" color="blue" size={18} />
+                  <Text color="blue">Sign In with Email</Text>
                 </HStack>
               </Button>
             </Link>
