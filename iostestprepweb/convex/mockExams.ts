@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 /**
  * Create a new mock exam with UWorld-style configuration
@@ -26,25 +27,15 @@ export const createMockExam = mutation({
         time_per_question_seconds: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             throw new Error("Not authenticated");
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
-            throw new Error("User not found");
         }
 
         // Select questions based on criteria
         const questionIds = await selectQuestions(
             ctx,
-            user._id,
+            userId,
             args.exam_id,
             args.selection_criteria
         );
@@ -67,7 +58,7 @@ export const createMockExam = mutation({
 
         // Create mock exam
         const mockExamId = await ctx.db.insert("mock_exams", {
-            user_id: user._id,
+            user_id: userId,
             exam_id: args.exam_id,
             mode: args.mode,
             selection_criteria: args.selection_criteria,
@@ -353,18 +344,8 @@ export const getMyMockExams = query({
         limit: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return [];
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return [];
         }
 
@@ -372,7 +353,7 @@ export const getMyMockExams = query({
 
         let query = ctx.db
             .query("mock_exams")
-            .withIndex("by_user", (q) => q.eq("user_id", user._id));
+            .withIndex("by_user", (q) => q.eq("user_id", userId));
 
         if (args.exam_id) {
             query = query.filter((q) => q.eq(q.field("exam_id"), args.exam_id));
@@ -394,24 +375,14 @@ export const getMockExamStats = query({
         exam_id: v.optional(v.id("exams")),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return null;
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return null;
         }
 
         let mockExams = await ctx.db
             .query("mock_exams")
-            .withIndex("by_user", (q) => q.eq("user_id", user._id))
+            .withIndex("by_user", (q) => q.eq("user_id", userId))
             .filter((q) => q.eq(q.field("is_completed"), true))
             .collect();
 

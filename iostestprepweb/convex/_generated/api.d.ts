@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as exams from "../exams.js";
 import type * as flashcards from "../flashcards.js";
@@ -16,6 +17,7 @@ import type * as library from "../library.js";
 import type * as migrations from "../migrations.js";
 import type * as mockExams from "../mockExams.js";
 import type * as questions from "../questions.js";
+import type * as savedExams from "../savedExams.js";
 import type * as schema_proposed from "../schema_proposed.js";
 import type * as seedLibrary from "../seedLibrary.js";
 import type * as seedQuestions from "../seedQuestions.js";
@@ -31,6 +33,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  auth: typeof auth;
   crons: typeof crons;
   exams: typeof exams;
   flashcards: typeof flashcards;
@@ -39,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   mockExams: typeof mockExams;
   questions: typeof questions;
+  savedExams: typeof savedExams;
   schema_proposed: typeof schema_proposed;
   seedLibrary: typeof seedLibrary;
   seedQuestions: typeof seedQuestions;

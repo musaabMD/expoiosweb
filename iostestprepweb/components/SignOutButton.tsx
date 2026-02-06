@@ -1,16 +1,16 @@
-import { useClerk } from '@clerk/clerk-expo';
+import { useAuthActions } from '@convex-dev/auth/react';
 import * as Linking from 'expo-linking';
 import { Text, TouchableOpacity, StyleSheet } from 'react-native';
 
 export const SignOutButton = () => {
-  const { signOut } = useClerk();
+  const { signOut } = useAuthActions();
 
   const handleSignOut = async () => {
     try {
       await signOut();
       Linking.openURL(Linking.createURL('/'));
     } catch (err) {
-      console.error(JSON.stringify(err, null, 2));
+      console.error('Sign out error:', err);
     }
   };
 

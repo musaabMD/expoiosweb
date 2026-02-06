@@ -1,6 +1,8 @@
-import { SignedIn, SignedOut, useUser, useClerk, useSSO } from '@clerk/clerk-expo';
 import { Link, useRouter } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
+import { useConvexAuth, useQuery } from 'convex/react';
+import { useAuthActions } from '@convex-dev/auth/react';
+import { api } from '@/convex/_generated/api';
 import {
   Button,
   Form,
@@ -15,51 +17,60 @@ import {
 import { background, clipShape, frame, padding } from '@expo/ui/swift-ui/modifiers';
 
 export default function HomePage() {
-  const { user } = useUser();
-  const { signOut } = useClerk();
-  const { startSSOFlow } = useSSO();
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const { signIn, signOut } = useAuthActions();
   const router = useRouter();
+  const [authLoading, setAuthLoading] = useState(false);
 
   const onGooglePress = useCallback(async () => {
+    setAuthLoading(true);
     try {
-      const { createdSessionId, setActive } = await startSSOFlow({
-        strategy: 'oauth_google',
-      });
-      if (createdSessionId) {
-        await setActive!({ session: createdSessionId });
-        router.replace('/');
-      }
+      await signIn('google');
+      router.replace('/');
     } catch (err) {
-      console.error('OAuth error:', JSON.stringify(err, null, 2));
+      console.error('OAuth error:', err);
+    } finally {
+      setAuthLoading(false);
     }
-  }, [startSSOFlow, router]);
+  }, [signIn, router]);
 
   const onApplePress = useCallback(async () => {
+    setAuthLoading(true);
     try {
-      const { createdSessionId, setActive } = await startSSOFlow({
-        strategy: 'oauth_apple',
-      });
-      if (createdSessionId) {
-        await setActive!({ session: createdSessionId });
-        router.replace('/');
-      }
+      await signIn('apple');
+      router.replace('/');
     } catch (err) {
-      console.error('OAuth error:', JSON.stringify(err, null, 2));
+      console.error('OAuth error:', err);
+    } finally {
+      setAuthLoading(false);
     }
-  }, [startSSOFlow, router]);
+  }, [signIn, router]);
 
   const handleSignOut = async () => {
     try {
       await signOut();
       router.replace('/');
     } catch (err) {
-      console.error(JSON.stringify(err, null, 2));
+      console.error('Sign out error:', err);
     }
   };
 
+  if (isLoading) {
+    return (
+      <Host style={{ flex: 1 }}>
+        <VStack>
+          <Spacer />
+          <Text>Loading...</Text>
+          <Spacer />
+        </VStack>
+      </Host>
+    );
+  }
+
   return (
     <Host style={{ flex: 1 }}>
-      <SignedIn>
+      {isAuthenticated ? (
         <Form>
           <Section header="Account">
             <VStack spacing={16}>
@@ -72,7 +83,7 @@ export default function HomePage() {
                 <VStack>
                   <Text size={18} weight="semibold">Welcome!</Text>
                   <Text size={14} color="secondary">
-                    {user?.emailAddresses[0]?.emailAddress}
+                    {currentUser?.email}
                   </Text>
                 </VStack>
               </HStack>
@@ -99,9 +110,7 @@ export default function HomePage() {
             </Button>
           </Section>
         </Form>
-      </SignedIn>
-
-      <SignedOut>
+      ) : (
         <VStack spacing={32} modifiers={[padding({ all: 32 })]}>
           <VStack spacing={8}>
             <Image
@@ -114,7 +123,7 @@ export default function HomePage() {
           </VStack>
 
           <VStack spacing={12}>
-            <Button onPress={onGooglePress}>
+            <Button onPress={onGooglePress} disabled={authLoading}>
               <HStack spacing={8}>
                 <Spacer />
                 <Text>Continue with Google</Text>
@@ -122,7 +131,7 @@ export default function HomePage() {
               </HStack>
             </Button>
 
-            <Button onPress={onApplePress}>
+            <Button onPress={onApplePress} disabled={authLoading}>
               <HStack spacing={8}>
                 <Spacer />
                 <Image systemName="apple.logo" color="white" size={18} />
@@ -154,7 +163,7 @@ export default function HomePage() {
             </Link>
           </VStack>
         </VStack>
-      </SignedOut>
+      )}
     </Host>
   );
 }

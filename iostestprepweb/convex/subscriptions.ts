@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   platformValidator,
   subscriptionStatusValidator,
@@ -17,7 +18,6 @@ type Platform = "web_stripe" | "ios_superwall" | "android_superwall";
 type SubscriptionStatus = "active" | "canceled" | "past_due" | "expired" | "trialing" | "incomplete";
 type PlanInterval = "month" | "year" | "lifetime";
 type EventType = "created" | "renewed" | "canceled" | "expired" | "updated" | "payment_failed" | "refunded";
-type WebhookProvider = "stripe" | "superwall";
 
 // Computed subscription info returned to clients
 export interface SubscriptionInfo {
@@ -36,10 +36,6 @@ export interface SubscriptionInfo {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-
-function extractClerkId(tokenIdentifier: string, subject: string): string {
-  return tokenIdentifier.split("|")[1] || subject;
-}
 
 function computeSubscriptionInfo(subscription: Doc<"subscriptions"> | null): SubscriptionInfo {
   const now = Date.now();
@@ -94,21 +90,17 @@ function computeSubscriptionInfo(subscription: Doc<"subscriptions"> | null): Sub
 export const getMySubscription = query({
   args: {},
   handler: async (ctx): Promise<SubscriptionInfo> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       return computeSubscriptionInfo(null);
     }
-
-    const clerkId = extractClerkId(identity.tokenIdentifier, identity.subject);
 
     // Query for active subscription
     const subscription = await ctx.db
       .query("subscriptions")
-      .withIndex("by_active", (q) => q.eq("clerkId", clerkId).eq("isActive", true))
+      .withIndex("by_user_active", (q) => q.eq("userId", userId).eq("isActive", true))
       .first();
 
-    // If found but expired, we should mark it as expired
-    // (this will be handled by the mutation, but we compute correctly here)
     return computeSubscriptionInfo(subscription);
   },
 });
@@ -119,16 +111,14 @@ export const getMySubscription = query({
 export const getMySubscriptionHistory = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       return [];
     }
 
-    const clerkId = extractClerkId(identity.tokenIdentifier, identity.subject);
-
     const subscriptions = await ctx.db
       .query("subscriptions")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
+      .withIndex("by_user_id", (q) => q.eq("userId", userId))
       .collect();
 
     return subscriptions.sort((a, b) => b.createdAt - a.createdAt);
@@ -143,17 +133,16 @@ export const getMySubscriptionEvents = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       return [];
     }
 
-    const clerkId = extractClerkId(identity.tokenIdentifier, identity.subject);
     const limit = args.limit ?? 50;
 
     const events = await ctx.db
       .query("subscription_events")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
+      .withIndex("by_user_id", (q) => q.eq("userId", userId))
       .order("desc")
       .take(limit);
 
@@ -168,16 +157,14 @@ export const getMySubscriptionEvents = query({
 export const hasActiveSubscription = query({
   args: {},
   handler: async (ctx): Promise<boolean> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       return false;
     }
 
-    const clerkId = extractClerkId(identity.tokenIdentifier, identity.subject);
-
     const subscription = await ctx.db
       .query("subscriptions")
-      .withIndex("by_active", (q) => q.eq("clerkId", clerkId).eq("isActive", true))
+      .withIndex("by_user_active", (q) => q.eq("userId", userId).eq("isActive", true))
       .first();
 
     if (!subscription) return false;
@@ -198,18 +185,17 @@ export const hasActiveSubscription = query({
 export const validateSubscriptionStatus = mutation({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       return null;
     }
 
-    const clerkId = extractClerkId(identity.tokenIdentifier, identity.subject);
     const now = Date.now();
 
     // Find active subscription
     const subscription = await ctx.db
       .query("subscriptions")
-      .withIndex("by_active", (q) => q.eq("clerkId", clerkId).eq("isActive", true))
+      .withIndex("by_user_active", (q) => q.eq("userId", userId).eq("isActive", true))
       .first();
 
     if (!subscription) {
@@ -226,23 +212,15 @@ export const validateSubscriptionStatus = mutation({
       });
 
       // Log the event
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-        .unique();
-
-      if (user) {
-        await ctx.db.insert("subscription_events", {
-          userId: user._id,
-          subscriptionId: subscription._id,
-          clerkId,
-          eventType: "expired",
-          platform: subscription.platform,
-          previousStatus: subscription.status,
-          newStatus: "expired",
-          timestamp: now,
-        });
-      }
+      await ctx.db.insert("subscription_events", {
+        userId: userId,
+        subscriptionId: subscription._id,
+        eventType: "expired",
+        platform: subscription.platform,
+        previousStatus: subscription.status,
+        newStatus: "expired",
+        timestamp: now,
+      });
 
       return computeSubscriptionInfo({
         ...subscription,
@@ -331,7 +309,7 @@ export const recordWebhookEvent = internalMutation({
  */
 export const upsertSubscription = internalMutation({
   args: {
-    clerkId: v.string(),
+    userId: v.id("users"),
     platform: platformValidator,
     status: subscriptionStatusValidator,
     currentPeriodStart: v.number(),
@@ -352,16 +330,6 @@ export const upsertSubscription = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-
-    // Get user by clerkId
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkId))
-      .unique();
-
-    if (!user) {
-      throw new Error(`User not found for clerkId: ${args.clerkId}`);
-    }
 
     // Compute isActive
     const isActive =
@@ -389,8 +357,7 @@ export const upsertSubscription = internalMutation({
 
     // Prepare subscription data
     const subscriptionData = {
-      userId: user._id,
-      clerkId: args.clerkId,
+      userId: args.userId,
       platform: args.platform,
       status: args.status,
       currentPeriodStart: args.currentPeriodStart,
@@ -431,9 +398,8 @@ export const upsertSubscription = internalMutation({
 
     // Log subscription event
     await ctx.db.insert("subscription_events", {
-      userId: user._id,
+      userId: args.userId,
       subscriptionId,
-      clerkId: args.clerkId,
       eventType,
       platform: args.platform,
       previousStatus,
@@ -502,7 +468,6 @@ export const cancelSubscription = internalMutation({
     await ctx.db.insert("subscription_events", {
       userId: subscription.userId,
       subscriptionId: subscription._id,
-      clerkId: subscription.clerkId,
       eventType: "canceled",
       platform: subscription.platform,
       previousStatus,
@@ -563,7 +528,6 @@ export const handlePaymentFailed = internalMutation({
     await ctx.db.insert("subscription_events", {
       userId: subscription.userId,
       subscriptionId: subscription._id,
-      clerkId: subscription.clerkId,
       eventType: "payment_failed",
       platform: subscription.platform,
       previousStatus,
@@ -610,7 +574,6 @@ export const expireSubscriptions = internalMutation({
       await ctx.db.insert("subscription_events", {
         userId: subscription.userId,
         subscriptionId: subscription._id,
-        clerkId: subscription.clerkId,
         eventType: "expired",
         platform: subscription.platform,
         previousStatus: subscription.status,
@@ -641,9 +604,6 @@ export const getAllSubscriptions = query({
   },
   handler: async (ctx, args) => {
     // TODO: Add admin role check
-    // const identity = await ctx.auth.getUserIdentity();
-    // if (!identity || !isAdmin(identity)) throw new Error("Unauthorized");
-
     const limit = args.limit ?? 100;
     let subscriptions;
 
@@ -672,7 +632,6 @@ export const getSubscriptionMetrics = query({
   args: {},
   handler: async (ctx) => {
     // TODO: Add admin role check
-
     const allSubscriptions = await ctx.db.query("subscriptions").collect();
 
     const metrics = {
@@ -697,21 +656,17 @@ export const getSubscriptionMetrics = query({
   },
 });
 
-// ============================================
-// USER-SPECIFIC QUERIES (by clerkId)
-// ============================================
-
 /**
- * Get subscription by Clerk ID (for server-side use).
+ * Get subscription by user ID (for server-side use).
  */
-export const getSubscriptionByClerkId = internalQuery({
+export const getSubscriptionByUserId = internalQuery({
   args: {
-    clerkId: v.string(),
+    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
     const subscription = await ctx.db
       .query("subscriptions")
-      .withIndex("by_active", (q) => q.eq("clerkId", args.clerkId).eq("isActive", true))
+      .withIndex("by_user_active", (q) => q.eq("userId", args.userId).eq("isActive", true))
       .first();
 
     return computeSubscriptionInfo(subscription);

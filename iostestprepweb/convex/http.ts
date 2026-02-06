@@ -1,7 +1,11 @@
 import { httpRouter } from "convex/server";
+import { auth } from "./auth";
 import { stripeWebhook, superwallWebhook } from "./webhooks";
 
 const http = httpRouter();
+
+// Convex Auth routes
+auth.addHttpRoutes(http);
 
 // Stripe webhook endpoint
 // Configure in Stripe Dashboard: https://your-convex-url.convex.site/stripe-webhook

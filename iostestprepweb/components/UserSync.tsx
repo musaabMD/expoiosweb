@@ -5,7 +5,7 @@ import { api } from "../convex/_generated/api";
 
 /**
  * Component that syncs the authenticated user to Convex.
- * Should be placed inside ConvexProviderWithClerk.
+ * Should be placed inside ConvexAuthProvider.
  * Automatically stores/updates user in Convex database when authenticated.
  * Also validates subscription status on login and app foreground.
  */

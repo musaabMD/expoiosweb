@@ -69,15 +69,15 @@ export const stripeWebhook = httpAction(async (ctx, request) => {
       case "customer.subscription.updated": {
         const subscription = event.data.object as StripeSubscription;
 
-        // Extract Clerk ID from metadata (you need to set this when creating the subscription)
-        const clerkId = subscription.metadata?.clerk_id;
+        // Extract Convex user ID from metadata (set this when creating the subscription)
+        const userId = subscription.metadata?.convex_user_id;
 
-        if (!clerkId) {
-          throw new Error("Missing clerk_id in subscription metadata");
+        if (!userId) {
+          throw new Error("Missing convex_user_id in subscription metadata");
         }
 
         await ctx.runMutation(internal.subscriptions.upsertSubscription, {
-          clerkId,
+          userId: userId as any, // Cast to Id<"users">
           platform: "web_stripe",
           status: mapStripeStatus(subscription.status),
           currentPeriodStart: subscription.current_period_start * 1000,
@@ -213,11 +213,11 @@ export const superwallWebhook = httpAction(async (ctx, request) => {
       processed: false,
     });
 
-    // Extract user ID (Clerk ID) from the event
-    // Superwall sends user_id which should be set to Clerk ID in your app
-    const clerkId = event.user?.id || event.user_id;
+    // Extract Convex user ID from the event
+    // Superwall sends user_id which should be set to Convex user ID in your app
+    const userId = event.user?.id || event.user_id;
 
-    if (!clerkId) {
+    if (!userId) {
       throw new Error("Missing user_id in Superwall event");
     }
 
@@ -231,7 +231,7 @@ export const superwallWebhook = httpAction(async (ctx, request) => {
         const subscription = event.subscription || event.product;
 
         await ctx.runMutation(internal.subscriptions.upsertSubscription, {
-          clerkId,
+          userId: userId as any, // Cast to Id<"users">
           platform: platform as "ios_superwall" | "android_superwall",
           status: "active",
           currentPeriodStart: parseSuperwallDate(subscription?.purchase_date),

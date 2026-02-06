@@ -1,197 +1,271 @@
-import * as React from 'react';
-import { useCallback } from 'react';
-import { Text, TextInput, TouchableOpacity, View, StyleSheet, Platform } from 'react-native';
-import { useSignUp, useSSO } from '@clerk/clerk-expo';
 import { Link, useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
-
-// Handle OAuth redirect for web
-if (Platform.OS === 'web') {
-  WebBrowser.maybeCompleteAuthSession();
-}
+import { Text, TouchableOpacity, View, StyleSheet, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { useAuthActions } from '@convex-dev/auth/react';
 
 export default function SignUpScreen() {
-  const { isLoaded, signUp, setActive } = useSignUp();
-  const { startSSOFlow } = useSSO();
+  const { signIn } = useAuthActions();
   const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [step, setStep] = useState<'email' | 'code'>('email');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const [emailAddress, setEmailAddress] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [pendingVerification, setPendingVerification] = React.useState(false);
-  const [code, setCode] = React.useState('');
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
 
-  const onGooglePress = useCallback(async () => {
-    try {
-      const { createdSessionId, setActive: ssoSetActive } = await startSSOFlow({
-        strategy: 'oauth_google',
-      });
+  const handleSendCode = async () => {
+    setError('');
 
-      if (createdSessionId) {
-        await ssoSetActive!({ session: createdSessionId });
-        router.replace('/');
-      }
-    } catch (err) {
-      console.error('OAuth error:', JSON.stringify(err, null, 2));
+    if (!email.trim()) {
+      setError('Please enter your email address');
+      return;
     }
-  }, [startSSOFlow, router]);
 
-  const onSignUpPress = async () => {
-    if (!isLoaded) return;
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
 
+    setIsLoading(true);
     try {
-      await signUp.create({
-        emailAddress,
-        password,
-      });
-
-      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-
-      setPendingVerification(true);
+      await signIn('email', { email });
+      setStep('code');
     } catch (err) {
-      console.error(JSON.stringify(err, null, 2));
+      console.error('Send code error:', err);
+      setError('Failed to send verification code. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const onVerifyPress = async () => {
-    if (!isLoaded) return;
+  const handleVerifyCode = async () => {
+    setError('');
 
+    if (!code.trim()) {
+      setError('Please enter the verification code');
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      const signUpAttempt = await signUp.attemptEmailAddressVerification({
-        code,
-      });
-
-      if (signUpAttempt.status === 'complete') {
-        await setActive({ session: signUpAttempt.createdSessionId });
-        router.replace('/');
-      } else {
-        console.error(JSON.stringify(signUpAttempt, null, 2));
-      }
+      await signIn('email', { email, code });
+      router.replace('/');
     } catch (err) {
-      console.error(JSON.stringify(err, null, 2));
+      console.error('Verification error:', err);
+      setError('Invalid verification code. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  if (pendingVerification) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.title}>Verify your email</Text>
-        <TextInput
-          style={styles.input}
-          value={code}
-          placeholder="Enter your verification code"
-          onChangeText={(code) => setCode(code)}
-        />
-        <TouchableOpacity style={styles.button} onPress={onVerifyPress}>
-          <Text style={styles.buttonText}>Verify</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const handleBackToEmail = () => {
+    setStep('email');
+    setCode('');
+    setError('');
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Sign up</Text>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.title}>Create account</Text>
+        <Text style={styles.subtitle}>
+          {step === 'email'
+            ? 'Enter your email to get started'
+            : 'Enter the verification code sent to your email'}
+        </Text>
 
-      <TouchableOpacity style={styles.googleButton} onPress={onGooglePress}>
-        <Text style={styles.googleButtonText}>Continue with Google</Text>
-      </TouchableOpacity>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      <View style={styles.divider}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>or</Text>
-        <View style={styles.dividerLine} />
-      </View>
+        {step === 'email' ? (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Email address"
+              placeholderTextColor="#666"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isLoading}
+            />
 
-      <TextInput
-        style={styles.input}
-        autoCapitalize="none"
-        value={emailAddress}
-        placeholder="Enter email"
-        onChangeText={(email) => setEmailAddress(email)}
-      />
-      <TextInput
-        style={styles.input}
-        value={password}
-        placeholder="Enter password"
-        secureTextEntry={true}
-        onChangeText={(password) => setPassword(password)}
-      />
-      <TouchableOpacity style={styles.button} onPress={onSignUpPress}>
-        <Text style={styles.buttonText}>Continue</Text>
-      </TouchableOpacity>
-      <View style={styles.linkContainer}>
-        <Text>Already have an account? </Text>
-        <Link href="/sign-in">
-          <Text style={styles.link}>Sign in</Text>
-        </Link>
-      </View>
-    </View>
+            <TouchableOpacity
+              style={[styles.button, isLoading && styles.buttonDisabled]}
+              onPress={handleSendCode}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Send Verification Code</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={styles.emailDisplay}>
+              <Text style={styles.emailDisplayText}>{email}</Text>
+              <TouchableOpacity onPress={handleBackToEmail}>
+                <Text style={styles.changeEmailText}>Change</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Verification code"
+              placeholderTextColor="#666"
+              value={code}
+              onChangeText={setCode}
+              keyboardType="number-pad"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isLoading}
+              maxLength={6}
+            />
+
+            <Text style={styles.codeHint}>
+              Check your terminal/console for the verification code
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.button, isLoading && styles.buttonDisabled]}
+              onPress={handleVerifyCode}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Verify & Sign Up</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.resendButton}
+              onPress={handleSendCode}
+              disabled={isLoading}
+            >
+              <Text style={styles.resendButtonText}>Resend Code</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        <View style={styles.linkContainer}>
+          <Text style={styles.linkText}>Already have an account? </Text>
+          <Link href="/sign-in">
+            <Text style={styles.link}>Sign in</Text>
+          </Link>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#000',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 20,
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 20,
+    marginBottom: 8,
+    textAlign: 'center',
+    color: '#fff',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#8E8E93',
+    marginBottom: 24,
     textAlign: 'center',
   },
-  googleButton: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
+  errorText: {
+    color: '#FF3B30',
+    textAlign: 'center',
     marginBottom: 16,
-  },
-  googleButtonText: {
-    color: '#333',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#ccc',
-  },
-  dividerText: {
-    marginHorizontal: 10,
-    color: '#666',
+    fontSize: 14,
   },
   input: {
+    backgroundColor: '#1C1C1E',
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    borderColor: '#333',
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
+    color: '#fff',
+    marginBottom: 16,
   },
   button: {
     backgroundColor: '#007AFF',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
+    marginBottom: 12,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   buttonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },
+  emailDisplay: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#1C1C1E',
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  emailDisplayText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  changeEmailText: {
+    color: '#007AFF',
+    fontSize: 14,
+  },
+  codeHint: {
+    color: '#666',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
+  resendButton: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  resendButtonText: {
+    color: '#007AFF',
+    fontSize: 14,
+  },
   linkContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     marginTop: 20,
+  },
+  linkText: {
+    color: '#8E8E93',
   },
   link: {
     color: '#007AFF',

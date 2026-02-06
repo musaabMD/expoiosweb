@@ -1,82 +1,115 @@
-import { SignedIn, SignedOut, useUser, useSSO } from '@clerk/clerk-expo';
 import { Link, useRouter } from 'expo-router';
-import { Text, View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { Text, View, StyleSheet, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
 import { SignOutButton } from '@/components/SignOutButton';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import * as WebBrowser from 'expo-web-browser';
+import { useConvexAuth, useQuery } from 'convex/react';
+import { useAuthActions } from '@convex-dev/auth/react';
+import { api } from '@/convex/_generated/api';
 
 if (Platform.OS === 'web') {
   WebBrowser.maybeCompleteAuthSession();
 }
 
 export default function HomePage() {
-  const { user } = useUser();
-  const { startSSOFlow } = useSSO();
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const { signIn } = useAuthActions();
   const router = useRouter();
+  const [authLoading, setAuthLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Auto-redirect to tabs if signed in
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      router.replace('/(tabs)');
+    }
+  }, [isAuthenticated, isLoading, router]);
 
   const onGooglePress = useCallback(async () => {
+    setAuthLoading(true);
+    setError('');
     try {
-      const { createdSessionId, setActive } = await startSSOFlow({
-        strategy: 'oauth_google',
-      });
-      if (createdSessionId) {
-        await setActive!({ session: createdSessionId });
-        router.replace('/');
-      }
+      await signIn('google');
+      router.replace('/');
     } catch (err) {
-      console.error('OAuth error:', JSON.stringify(err, null, 2));
+      console.error('OAuth error:', err);
+      setError('Google sign in failed. Please try again.');
+    } finally {
+      setAuthLoading(false);
     }
-  }, [startSSOFlow, router]);
+  }, [signIn, router]);
 
   const onApplePress = useCallback(async () => {
+    setAuthLoading(true);
+    setError('');
     try {
-      const { createdSessionId, setActive } = await startSSOFlow({
-        strategy: 'oauth_apple',
-      });
-      if (createdSessionId) {
-        await setActive!({ session: createdSessionId });
-        router.replace('/');
-      }
+      await signIn('apple');
+      router.replace('/');
     } catch (err) {
-      console.error('OAuth error:', JSON.stringify(err, null, 2));
+      console.error('OAuth error:', err);
+      setError('Apple sign in failed. Please try again.');
+    } finally {
+      setAuthLoading(false);
     }
-  }, [startSSOFlow, router]);
+  }, [signIn, router]);
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <SignedIn>
-        <Text style={styles.title}>Welcome!</Text>
-        <Text style={styles.email}>{user?.emailAddresses[0].emailAddress}</Text>
-        <SignOutButton />
-      </SignedIn>
-      <SignedOut>
-        <Text style={styles.title}>Welcome to TestPrep2026</Text>
+      {isAuthenticated ? (
+        <>
+          <Text style={styles.title}>Welcome!</Text>
+          <Text style={styles.email}>{currentUser?.email}</Text>
+          <SignOutButton />
+        </>
+      ) : (
+        <>
+          <Text style={styles.title}>Welcome to TestPrep2026</Text>
 
-        <View style={styles.oauthContainer}>
-          <TouchableOpacity style={styles.googleButton} onPress={onGooglePress}>
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
-          </TouchableOpacity>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-          <TouchableOpacity style={styles.appleButton} onPress={onApplePress}>
-            <Text style={styles.appleButtonText}>Continue with Apple</Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.oauthContainer}>
+            <TouchableOpacity
+              style={[styles.googleButton, authLoading && styles.buttonDisabled]}
+              onPress={onGooglePress}
+              disabled={authLoading}
+            >
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
+            </TouchableOpacity>
 
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.dividerLine} />
-        </View>
+            <TouchableOpacity
+              style={[styles.appleButton, authLoading && styles.buttonDisabled]}
+              onPress={onApplePress}
+              disabled={authLoading}
+            >
+              <Text style={styles.appleButtonText}>Continue with Apple</Text>
+            </TouchableOpacity>
+          </View>
 
-        <View style={styles.linkContainer}>
-          <Link href="/(auth)/sign-in" style={styles.link}>
-            <Text style={styles.linkText}>Sign in with email</Text>
-          </Link>
-          <Link href="/(auth)/sign-up" style={styles.link}>
-            <Text style={styles.linkText}>Sign up</Text>
-          </Link>
-        </View>
-      </SignedOut>
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <View style={styles.linkContainer}>
+            <Link href="/(auth)/sign-in" style={styles.link}>
+              <Text style={styles.linkText}>Sign in with email</Text>
+            </Link>
+            <Link href="/(auth)/sign-up" style={styles.link}>
+              <Text style={styles.linkText}>Sign up</Text>
+            </Link>
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -87,15 +120,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    backgroundColor: '#000',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 24,
+    color: '#fff',
   },
   email: {
     fontSize: 16,
-    color: '#666',
+    color: '#8E8E93',
+  },
+  errorText: {
+    color: '#FF3B30',
+    marginBottom: 16,
+    fontSize: 14,
   },
   oauthContainer: {
     width: '100%',
@@ -108,7 +148,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
   },
   googleButtonText: {
@@ -117,15 +157,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   appleButton: {
-    backgroundColor: '#000',
+    backgroundColor: '#fff',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
   },
   appleButtonText: {
-    color: '#fff',
+    color: '#000',
     fontSize: 16,
     fontWeight: '600',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   divider: {
     flexDirection: 'row',
@@ -137,7 +180,7 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#ccc',
+    backgroundColor: '#333',
   },
   dividerText: {
     marginHorizontal: 10,
@@ -150,7 +193,7 @@ const styles = StyleSheet.create({
   link: {
     backgroundColor: '#007AFF',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   linkText: {
     color: 'white',

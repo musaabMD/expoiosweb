@@ -1,34 +1,33 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 /**
  * Store or update the current user in the database.
  * Called when a user signs in or signs up.
- * Uses the Clerk identity from the JWT token.
+ * Uses Convex Auth identity.
  */
 export const storeUser = mutation({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       throw new Error("Called storeUser without authentication");
     }
 
-    // Extract Clerk user ID from tokenIdentifier
-    // Format is "https://domain|clerk_user_id"
-    const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Failed to get user identity");
+    }
 
     // Check if user already exists
-    const existingUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-      .unique();
+    const existingUser = await ctx.db.get(userId);
 
     const now = Date.now();
 
     if (existingUser) {
-      // Update existing user with latest info from Clerk
-      await ctx.db.patch(existingUser._id, {
+      // Update existing user with latest info
+      await ctx.db.patch(userId, {
         email: identity.email ?? existingUser.email,
         name: identity.name ?? existingUser.name,
         firstName: identity.givenName ?? existingUser.firstName,
@@ -36,13 +35,13 @@ export const storeUser = mutation({
         imageUrl: identity.pictureUrl ?? existingUser.imageUrl,
         updatedAt: now,
       });
-      return existingUser._id;
+      return userId;
     }
 
-    // Create new user
-    const userId = await ctx.db.insert("users", {
-      clerkId,
-      email: identity.email ?? "",
+    // User doesn't exist yet - this can happen if Convex Auth didn't auto-create
+    // Create a new user record
+    const newUserId = await ctx.db.insert("users", {
+      email: identity.email,
       name: identity.name,
       firstName: identity.givenName,
       lastName: identity.familyName,
@@ -51,7 +50,7 @@ export const storeUser = mutation({
       updatedAt: now,
     });
 
-    return userId;
+    return newUserId;
   },
 });
 
@@ -61,18 +60,12 @@ export const storeUser = mutation({
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       return null;
     }
 
-    const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-      .unique();
-
+    const user = await ctx.db.get(userId);
     return user;
   },
 });
@@ -88,14 +81,14 @@ export const getUserById = query({
 });
 
 /**
- * Get a user by their Clerk ID.
+ * Get a user by their email.
  */
-export const getUserByClerkId = query({
-  args: { clerkId: v.string() },
+export const getUserByEmail = query({
+  args: { email: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkId))
+      .withIndex("email", (q) => q.eq("email", args.email))
       .unique();
   },
 });
@@ -110,27 +103,22 @@ export const updateProfile = mutation({
     lastName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
-    const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-      .unique();
-
+    const user = await ctx.db.get(userId);
     if (!user) {
       throw new Error("User not found");
     }
 
-    await ctx.db.patch(user._id, {
+    await ctx.db.patch(userId, {
       ...args,
       updatedAt: Date.now(),
     });
 
-    return user._id;
+    return userId;
   },
 });
 
@@ -140,22 +128,17 @@ export const updateProfile = mutation({
 export const deleteAccount = mutation({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
-    const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-      .unique();
-
+    const user = await ctx.db.get(userId);
     if (!user) {
       throw new Error("User not found");
     }
 
-    await ctx.db.delete(user._id);
+    await ctx.db.delete(userId);
     return true;
   },
 });

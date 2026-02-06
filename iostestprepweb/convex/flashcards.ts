@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 /**
  * SM-2 Algorithm Helper
@@ -60,26 +61,16 @@ export const createFlashcard = mutation({
         question_id: v.id("questions"),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             throw new Error("Not authenticated");
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
-            throw new Error("User not found");
         }
 
         // Check if flashcard already exists
         const existing = await ctx.db
             .query("flashcards")
             .withIndex("by_user_and_question", (q) =>
-                q.eq("user_id", user._id).eq("question_id", args.question_id)
+                q.eq("user_id", userId).eq("question_id", args.question_id)
             )
             .unique();
 
@@ -91,7 +82,7 @@ export const createFlashcard = mutation({
 
         // Create new flashcard
         const flashcardId = await ctx.db.insert("flashcards", {
-            user_id: user._id,
+            user_id: userId,
             question_id: args.question_id,
             next_review: now, // Available immediately
             interval: 0,
@@ -171,18 +162,8 @@ export const getDueFlashcards = query({
         limit: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return [];
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return [];
         }
 
@@ -192,7 +173,7 @@ export const getDueFlashcards = query({
         // Get flashcards where next_review <= now
         const dueCards = await ctx.db
             .query("flashcards")
-            .withIndex("by_next_review", (q) => q.eq("user_id", user._id))
+            .withIndex("by_next_review", (q) => q.eq("user_id", userId))
             .filter((q) => q.lte(q.field("next_review"), now))
             .take(limit);
 
@@ -217,24 +198,14 @@ export const getDueFlashcards = query({
 export const getFlashcardStats = query({
     args: {},
     handler: async (ctx) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return null;
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return null;
         }
 
         const allCards = await ctx.db
             .query("flashcards")
-            .withIndex("by_user", (q) => q.eq("user_id", user._id))
+            .withIndex("by_user", (q) => q.eq("user_id", userId))
             .collect();
 
         const now = Date.now();
@@ -268,18 +239,8 @@ export const getMyFlashcards = query({
         limit: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return [];
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return [];
         }
 
@@ -289,13 +250,13 @@ export const getMyFlashcards = query({
             return await ctx.db
                 .query("flashcards")
                 .withIndex("by_status", (q) =>
-                    q.eq("user_id", user._id).eq("status", args.status)
+                    q.eq("user_id", userId).eq("status", args.status!)
                 )
                 .take(limit);
         } else {
             return await ctx.db
                 .query("flashcards")
-                .withIndex("by_user", (q) => q.eq("user_id", user._id))
+                .withIndex("by_user", (q) => q.eq("user_id", userId))
                 .take(limit);
         }
     },

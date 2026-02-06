@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 /**
  * Create a new question
@@ -155,19 +156,9 @@ export const addFeedback = mutation({
         feedback_text: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             throw new Error("Not authenticated");
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
-            throw new Error("User not found");
         }
 
         const question = await ctx.db.get(args.question_id);
@@ -179,7 +170,7 @@ export const addFeedback = mutation({
         const newFeedback = {
             type: args.feedback_type,
             text: args.feedback_text,
-            user_id: user._id,
+            user_id: userId,
             timestamp: Date.now(),
         };
 

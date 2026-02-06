@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 /**
  * Record user's answer to a question
@@ -12,19 +13,9 @@ export const recordAnswer = mutation({
         time_spent_seconds: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             throw new Error("Not authenticated");
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
-            throw new Error("User not found");
         }
 
         const now = Date.now();
@@ -33,7 +24,7 @@ export const recordAnswer = mutation({
         const existing = await ctx.db
             .query("user_progress")
             .withIndex("by_user_and_question", (q) =>
-                q.eq("user_id", user._id).eq("question_id", args.question_id)
+                q.eq("user_id", userId).eq("question_id", args.question_id)
             )
             .unique();
 
@@ -54,7 +45,7 @@ export const recordAnswer = mutation({
         } else {
             // Create new progress record
             const progressId = await ctx.db.insert("user_progress", {
-                user_id: user._id,
+                user_id: userId,
                 question_id: args.question_id,
                 status: args.is_correct ? "correct" : "incorrect",
                 attempts: 1,
@@ -79,19 +70,9 @@ export const flagQuestion = mutation({
         flagged: v.boolean(),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             throw new Error("Not authenticated");
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
-            throw new Error("User not found");
         }
 
         const now = Date.now();
@@ -100,7 +81,7 @@ export const flagQuestion = mutation({
         const existing = await ctx.db
             .query("user_progress")
             .withIndex("by_user_and_question", (q) =>
-                q.eq("user_id", user._id).eq("question_id", args.question_id)
+                q.eq("user_id", userId).eq("question_id", args.question_id)
             )
             .unique();
 
@@ -113,7 +94,7 @@ export const flagQuestion = mutation({
         } else {
             // Create new progress record with flagged status
             await ctx.db.insert("user_progress", {
-                user_id: user._id,
+                user_id: userId,
                 question_id: args.question_id,
                 status: "flagged",
                 attempts: 0,
@@ -135,18 +116,8 @@ export const getMyProgress = query({
         limit: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return [];
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return [];
         }
 
@@ -154,7 +125,7 @@ export const getMyProgress = query({
 
         return await ctx.db
             .query("user_progress")
-            .withIndex("by_user", (q) => q.eq("user_id", user._id))
+            .withIndex("by_user", (q) => q.eq("user_id", userId))
             .order("desc")
             .take(limit);
     },
@@ -174,18 +145,8 @@ export const getProgressByStatus = query({
         limit: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return [];
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return [];
         }
 
@@ -194,7 +155,7 @@ export const getProgressByStatus = query({
         return await ctx.db
             .query("user_progress")
             .withIndex("by_status", (q) =>
-                q.eq("user_id", user._id).eq("status", args.status)
+                q.eq("user_id", userId).eq("status", args.status)
             )
             .take(limit);
     },
@@ -206,24 +167,14 @@ export const getProgressByStatus = query({
 export const getProgressStats = query({
     args: {},
     handler: async (ctx) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return null;
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return null;
         }
 
         const allProgress = await ctx.db
             .query("user_progress")
-            .withIndex("by_user", (q) => q.eq("user_id", user._id))
+            .withIndex("by_user", (q) => q.eq("user_id", userId))
             .collect();
 
         const stats = {
@@ -257,25 +208,15 @@ export const getQuestionProgress = query({
         question_id: v.id("questions"),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            return null;
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             return null;
         }
 
         return await ctx.db
             .query("user_progress")
             .withIndex("by_user_and_question", (q) =>
-                q.eq("user_id", user._id).eq("question_id", args.question_id)
+                q.eq("user_id", userId).eq("question_id", args.question_id)
             )
             .unique();
     },
@@ -289,25 +230,15 @@ export const resetQuestionProgress = mutation({
         question_id: v.id("questions"),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
             throw new Error("Not authenticated");
-        }
-
-        const clerkId = identity.tokenIdentifier.split("|")[1] || identity.subject;
-        const user = await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-            .unique();
-
-        if (!user) {
-            throw new Error("User not found");
         }
 
         const progress = await ctx.db
             .query("user_progress")
             .withIndex("by_user_and_question", (q) =>
-                q.eq("user_id", user._id).eq("question_id", args.question_id)
+                q.eq("user_id", userId).eq("question_id", args.question_id)
             )
             .unique();
 

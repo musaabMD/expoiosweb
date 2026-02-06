@@ -1,12 +1,17 @@
 import { Redirect, Stack } from 'expo-router';
-import { useAuth } from '@clerk/clerk-expo';
+import { useConvexAuth } from 'convex/react';
 
 export default function AuthRoutesLayout() {
-  const { isSignedIn } = useAuth();
+  const { isAuthenticated, isLoading } = useConvexAuth();
 
-  if (isSignedIn) {
+  // Don't redirect while loading
+  if (isLoading) {
+    return null;
+  }
+
+  if (isAuthenticated) {
     return <Redirect href={'/'} />;
   }
 
-  return <Stack />;
+  return <Stack screenOptions={{ headerShown: false }} />;
 }

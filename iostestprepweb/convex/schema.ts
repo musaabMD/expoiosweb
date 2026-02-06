@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 // Subscription platform types
 export const platformValidator = v.union(
@@ -44,23 +45,31 @@ export const webhookProviderValidator = v.union(
 
 export default defineSchema({
   // ============================================
-  // USERS TABLE (existing)
+  // CONVEX AUTH TABLES
+  // ============================================
+  ...authTables,
+
+  // ============================================
+  // USERS TABLE (updated for Convex Auth)
   // ============================================
   users: defineTable({
-    // Clerk user ID (from tokenIdentifier)
-    clerkId: v.string(),
-    // User profile information from Clerk
-    email: v.string(),
+    // User profile information
+    email: v.optional(v.string()),
     name: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
-    // Timestamps
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_clerkId", ["clerkId"])
-    .index("by_email", ["email"]),
+    // Legacy field (kept for existing data migration)
+    clerkId: v.optional(v.string()),
+    // Convex Auth fields (automatically populated)
+    emailVerificationTime: v.optional(v.number()),
+    // Timestamps (optional because Convex Auth doesn't auto-populate these)
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  }
+  )
+    .index("email", ["email"]) // Required by Convex Auth
+    .index("by_clerkId", ["clerkId"]), // Legacy index for migration
 
   // ============================================
   // SUBSCRIPTIONS TABLE
@@ -68,7 +77,6 @@ export default defineSchema({
   subscriptions: defineTable({
     // User references
     userId: v.id("users"),
-    clerkId: v.string(), // Denormalized for faster lookups
 
     // Platform info
     platform: platformValidator,
@@ -109,11 +117,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_user_id", ["userId"])
-    .index("by_clerk_id", ["clerkId"])
     .index("by_stripe_subscription", ["stripeSubscriptionId"])
     .index("by_superwall_subscription", ["superwallSubscriptionId"])
     .index("by_status", ["status"])
-    .index("by_active", ["clerkId", "isActive"])
+    .index("by_user_active", ["userId", "isActive"])
     .index("by_period_end", ["currentPeriodEnd", "isActive"]),
 
   // ============================================
@@ -123,7 +130,6 @@ export default defineSchema({
     // References
     userId: v.id("users"),
     subscriptionId: v.id("subscriptions"),
-    clerkId: v.string(), // Denormalized
 
     // Event details
     eventType: subscriptionEventTypeValidator,
@@ -142,7 +148,6 @@ export default defineSchema({
   })
     .index("by_user_id", ["userId"])
     .index("by_subscription_id", ["subscriptionId"])
-    .index("by_clerk_id", ["clerkId"])
     .index("by_timestamp", ["timestamp"])
     .index("by_webhook_event", ["webhookEventId"]),
 
@@ -202,6 +207,17 @@ export default defineSchema({
     .index("by_category", ["category"])
     .index("by_provider", ["provider"])
     .index("by_active", ["isActive"]),
+
+  // ============================================
+  // USER SAVED EXAMS (bookmarks)
+  // ============================================
+  saved_exams: defineTable({
+    userId: v.id("users"),
+    examId: v.id("exams"),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_and_exam", ["userId", "examId"]),
 
   // ============================================
   // QUESTIONS TABLE
